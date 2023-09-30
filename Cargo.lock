@@ -108,6 +108,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "406ac2a8c9eedf8af9ee1489bee9e50029278a6456c740f7454cf8a158abc816"
 
 [[package]]
+name = "farmer"
+version = "0.1.0"
+dependencies = [
+ "enigo",
+ "inputbot",
+]
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -238,14 +246,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "minecraft_clicker"
-version = "0.1.0"
-dependencies = [
- "enigo",
- "inputbot",
 ]
 
 [[package]]
