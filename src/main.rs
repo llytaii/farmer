@@ -1,16 +1,26 @@
-use std::thread;
 use std::cell::RefCell;
-use std::time::Duration;
+use std::env;
+use std::fs::File;
+use std::io::Read;
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
+use std::thread;
+use std::time::Duration;
 
 use enigo::*;
-use stopwatch::Stopwatch;
 use inputbot::KeybdKey::*;
+use serde::{Deserialize, Serialize};
+use stopwatch::Stopwatch;
 
-#[derive(Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
 enum WorkStep {
     Mouse(enigo::MouseButton),
     Key(enigo::Key),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct Work {
+    permanent_work: Vec<WorkStep>,
+    cyclic_work: Vec<(WorkStep, u64)>,
 }
 
 struct Farmer {
@@ -62,7 +72,6 @@ impl Farmer {
 
         self.start_permanent_work();
 
-
         loop {
             for (work_step, duration) in &self.cyclic_work {
                 let mut stopwatch = Stopwatch::start_new();
@@ -99,6 +108,28 @@ impl Farmer {
         self.cyclic_work.push((work_step, duration));
     }
 
+    fn set_work(&mut self, work: Work) {
+        self.permanent_work = work.permanent_work;
+        for (work_step, duration) in work.cyclic_work {
+            self.cyclic_work
+                .push((work_step, Duration::from_secs(duration)));
+        }
+    }
+
+    fn get_work(&self) -> Work {
+        let mut work = Work {
+            permanent_work: self.permanent_work.clone(),
+            cyclic_work: Vec::new(),
+        };
+
+        for (work_step, duration) in &self.cyclic_work {
+            work.cyclic_work
+                .push((work_step.clone(), duration.as_secs()));
+        }
+
+        work
+    }
+
     fn new() -> Farmer {
         Farmer {
             permanent_work: Vec::new(),
@@ -109,28 +140,70 @@ impl Farmer {
     }
 }
 
-
 fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() != 2 {
+        eprintln!(
+            "Usage: {} <filename.json>",
+            std::path::Path::new(&args[0])
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+        std::process::exit(1);
+    }
+
+    let filename = &args[1];
+
+    let mut file = match File::open(filename) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("error opening file: {}", err);
+            std::process::exit(1);
+        }
+    };
+
+    let mut content = String::new();
+    if let Err(err) = file.read_to_string(&mut content) {
+        eprintln!("error reading file: {}", err);
+        std::process::exit(1);
+    }
+
+    let result: Result<Work, serde_json::Error> = serde_json::from_str(&content);
+
+    let work = match result {
+        Ok(parsed_data) => {
+            let pretty_json = serde_json::to_string_pretty(&parsed_data);
+            match pretty_json {
+                Ok(json_str) => println!("Parsed data:\n{}", json_str),
+                Err(err) => eprintln!("Error serializing data to pretty JSON: {}", err),
+            }
+            parsed_data
+        }
+        Err(err) => {
+            eprintln!("error deserializing json: {}", err);
+            std::process::exit(1);
+        }
+    };
+
     let stop = Arc::new(AtomicBool::new(true));
 
+    println!("");
+    println!("starting execution..");
+
+    // start worker thread
     {
         let stop = stop.clone();
         thread::spawn(move || {
-            let duration = Duration::from_secs(48);
             let mut farmer = Farmer::new();
-            println!("adding work..");
-            farmer.add_permanent_work(WorkStep::Mouse(MouseButton::Left));
-            farmer.add_cyclic_work(WorkStep::Key(Key::Layout('d')), duration);
-            for _ in 0..4 {
-                farmer.add_cyclic_work(WorkStep::Key(Key::Layout('s')), duration);
-                farmer.add_cyclic_work(WorkStep::Key(Key::Layout('d')), duration);
-            }
-            farmer.add_cyclic_work(WorkStep::Key(Key::Layout('g')), Duration::from_secs(0));
-
+            farmer.set_work(work);
             farmer.work(stop);
         });
     }
 
+    // start callback thread
     {
         let stop = stop.clone();
         Numpad0Key.bind(move || {
